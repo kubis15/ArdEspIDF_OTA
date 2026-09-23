@@ -3,15 +3,9 @@
 #include "github_root_ca.h"
 #include "esp_err.h"
 
-#ifndef CURRENT_VERSION
-#define CURRENT_VERSION "1.0.0"
-#else
-#undef CURRENT_VERSION
-#define CURRENT_VERSION "1.0.0"
-#endif
 
 #ifndef OTA_URL
-#define OTA_URL "https://<username>.github.io/<repo>"
+#define OTA_URL "https://kubis15.github.io/ArdEspIDF_OTA/"
 #endif
 
 /**
