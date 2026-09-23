@@ -77,7 +77,7 @@ void setup() {
     ///pixels.show();
 
     // Run OTA update check
-    ////check_and_perform_ota();
+    check_and_perform_ota();
 }
 
 void loop() {
