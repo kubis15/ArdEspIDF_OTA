@@ -1,0 +1,58 @@
+name: ESP32 OTA GitHub Pages CI/CD
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:  # Enables manual run button
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: Install PlatformIO
+      run: pip install platformio
+
+    - name: Build Firmware
+      run: pio run
+
+    - name: Extract Firmware Version
+      id: extract_version
+      run: |
+        VERSION=$(grep "firmware_version" platformio.ini | sed 's/.*= *//')
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Prepare OTA Artifacts
+      run: |
+        mkdir -p docs
+        cp $(find .pio/build -name "firmware.bin" | head -n 1) docs/firmware.bin
+
+    - name: Generate firmware.json
+      run: |
+        REPO_NAME="${GITHUB_REPOSITORY}"
+        OWNER="${GITHUB_REPOSITORY_OWNER}"
+        NAME_ONLY="${REPO_NAME#*/}"
+        
+        cat <<EOF > docs/firmware.json
+        {
+          "version": "${{ steps.extract_version.outputs.version }}",
+          "url": "https://${OWNER}.github.io/${NAME_ONLY}/firmware.bin"
+        }
+        EOF
+
+    - name: Deploy to GitHub Pages Branch
+      uses: JamesIves/github-pages-deploy-action@v4
+      with:
+        branch: gh-pages
+        folder: docs
