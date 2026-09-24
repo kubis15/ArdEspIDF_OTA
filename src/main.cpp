@@ -3,6 +3,7 @@
 #include <Adafruit_NeoPixel.h>
 ///#include <FastLED.h>
 #include "ota_client.h"
+#include "esp_netif_sntp.h"
 
 // --- Wi‑Fi credentials ---
 const char* WIFI_SSID = "Moby_2.4_58D0C8";
@@ -61,6 +62,10 @@ void setup() {
     delay(10000);
 
     Serial.println("NeoPixel and FastLED initialized");
+    
+    time_t now = time(nullptr);
+    Serial.printf("Unix time: %lld\n", (long long)now);
+    Serial.printf("Current time: %s\n", ctime(&now));
 
     // Connect to Wi‑Fi (commented out for now)
     WiFi.begin(WIFI_SSID, WIFI_PASS);
@@ -77,6 +82,19 @@ void setup() {
 
     Serial.print("MAC address: ");
     Serial.println(WiFi.macAddress());
+
+    esp_sntp_config_t config =
+        ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+
+    esp_netif_sntp_init(&config);
+
+    esp_err_t err =
+        esp_netif_sntp_sync_wait(pdMS_TO_TICKS(10000));
+
+    if (err == ESP_OK) {
+        Serial.println("Time synchronized");
+    }
+
     // Indicate connection (simulated)
     ///pixels.setPixelColor(0, pixels.Color(0, 50, 0)); // green when connected
     ///pixels.show();
