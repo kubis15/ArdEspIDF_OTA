@@ -1,0 +1,30 @@
+{
+  "name": "YD-ESP32-S3 (N16R8) – Custom",
+  "build": {
+    "core": "esp32",
+    "mcu": "esp32s3",
+    "variant": "esp32s3",
+    "flash_mode": "qio",
+    "flash_size": "16MB",
+    "flash_freq": "80m",
+    
+    "f_cpu": "240000000L",
+    "partitions": "default_16MB.csv"
+    
+  },
+  "frameworks": ["arduino"],
+  "upload": {
+    "maximum_ram_size": 524288,
+    "maximum_size": 16777216,
+    "protocol": "esptool"
+    
+  },
+  "connectivity": ["wifi", "bluetooth"],
+  "debug": {
+    "tools": {
+      "esp-prog": {"onboard": false}
+    }
+  },
+  "url": "https://github.com/kubis15/ArdEspIDF_OTA",
+  "vendor": "YD"
+}
