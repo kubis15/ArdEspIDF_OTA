@@ -34,7 +34,7 @@ void setup() {
     Serial.begin(115200);
     delay(1000);
 
-    Serial.printf("\n--- Starting Firmware v%s ---\n", CURRENT_VERSION);
+    Serial.printf("\n--- Starting Firmware v%s ---\n", (CURRENT_VERSION));
     Serial.println("Boot reason: " + String(esp_reset_reason()));
 
     Serial.printf("Flash: %u MB\n", ESP.getFlashChipSize() / 1024 / 1024);
