@@ -10,8 +10,6 @@
 #include "ota_client.h"
 #include "github_root_ca.h"
 
-//#include "esp_crt_bundle.h"
-
 
 static const char *TAG = "OTA_CLIENT";
 
@@ -20,51 +18,61 @@ static const char *TAG = "OTA_CLIENT";
 // Manifest response buffer
 // ============================================================
 
-static char response_buffer[512];
-static int response_len = 0;
+#define MANIFEST_BUFFER_SIZE 2048
+
+static char response_buffer[MANIFEST_BUFFER_SIZE];
+static size_t response_len = 0;
 
 
 // ============================================================
 // HTTP EVENT HANDLER
 // ============================================================
 
-static esp_err_t _http_event_handler(esp_http_client_event_handle_t evt)
+static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 {
     switch (evt->event_id)
     {
         case HTTP_EVENT_ON_DATA:
         {
-            // esp_http_client_is_chunked_response() expects
-            // the HTTP CLIENT handle, not the event handle.
-            if (!esp_http_client_is_chunked_response(evt->client))
+            ESP_LOGI(
+                TAG,
+                "HTTP_EVENT_ON_DATA: %d bytes",
+                evt->data_len
+            );
+
+            if (evt->data_len <= 0)
             {
-                // Make sure there is enough room for received data
-                // plus the terminating '\0'.
-                if (response_len + evt->data_len <
-                    (int)sizeof(response_buffer))
-                {
-                    memcpy(
-                        response_buffer + response_len,
-                        evt->data,
-                        evt->data_len
-                    );
-
-                    response_len += evt->data_len;
-                    response_buffer[response_len] = '\0';
-                }
-                else
-                {
-                    ESP_LOGE(
-                        TAG,
-                        "Manifest response exceeds buffer size"
-                    );
-
-                    return ESP_ERR_NO_MEM;
-                }
+                break;
             }
+
+            const size_t available =
+                sizeof(response_buffer) - 1 - response_len;
+
+            if ((size_t)evt->data_len > available)
+            {
+                ESP_LOGE(
+                    TAG,
+                    "Manifest response exceeds buffer size"
+                );
+
+                return ESP_ERR_NO_MEM;
+            }
+
+            memcpy(
+                response_buffer + response_len,
+                evt->data,
+                evt->data_len
+            );
+
+            response_len += (size_t)evt->data_len;
+            response_buffer[response_len] = '\0';
 
             break;
         }
+
+        case HTTP_EVENT_ON_FINISH:
+            ESP_LOGI(TAG, "HTTP_EVENT_ON_FINISH");
+            break;
 
         default:
             break;
@@ -170,9 +178,9 @@ esp_err_t check_for_ota_update()
     esp_http_client_config_t config = {};
 
     config.url = manifest_url;
-    //config.crt_bundle_attach = esp_crt_bundle_attach;
     config.cert_pem = GITHUB_ROOT_CA;
     config.timeout_ms = 15000;
+    config.event_handler = http_event_handler;
 
     // --------------------------------------------------------
     // Create HTTP client
@@ -219,6 +227,19 @@ esp_err_t check_for_ota_update()
 
         return err;
     }
+
+
+    ESP_LOGI(
+        TAG,
+        "Response length: %u",
+        (unsigned)response_len
+    );
+
+    ESP_LOGI(
+        TAG,
+        "Response body: %s",
+        response_buffer
+    );
 
 
     // --------------------------------------------------------
@@ -484,49 +505,30 @@ esp_err_t check_for_ota_update()
 
     // --------------------------------------------------------
     // Configure HTTPS OTA
-    //
     // --------------------------------------------------------
-// HTTP configuration for OTA firmware download
-// --------------------------------------------------------
 
-esp_http_client_config_t ota_http_config = {};
+    esp_http_client_config_t ota_http_config = {};
 
-ota_http_config.url = firmware_url;
-//config.crt_bundle_attach = esp_crt_bundle_attach;
-ota_http_config.cert_pem = GITHUB_ROOT_CA;
-ota_http_config.timeout_ms = 15000;
+    ota_http_config.url = firmware_url;
+    ota_http_config.cert_pem = GITHUB_ROOT_CA;
+    ota_http_config.timeout_ms = 15000;
 
 
-// --------------------------------------------------------
-// ESP-IDF 5.x OTA configuration
-// --------------------------------------------------------
+    // --------------------------------------------------------
+    // ESP-IDF 5.x OTA configuration
+    // --------------------------------------------------------
 
-esp_https_ota_config_t ota_config = {};
+    esp_https_ota_config_t ota_config = {};
 
-ota_config.http_config = &ota_http_config;
-
-
-// --------------------------------------------------------
-// Perform OTA
-// --------------------------------------------------------
-
-esp_err_t ota_ret = esp_https_ota(&ota_config);
+    ota_config.http_config = &ota_http_config;
 
 
-// --------------------------------------------------------
-// Check OTA result
-// --------------------------------------------------------
+    // --------------------------------------------------------
+    // Perform OTA
+    // --------------------------------------------------------
 
-if (ota_ret != ESP_OK)
-{
-    ESP_LOGE(
-        TAG,
-        "OTA update failed: %s",
-        esp_err_to_name(ota_ret)
-    );
-
-    return ota_ret;
-}
+    esp_err_t ota_ret =
+        esp_https_ota(&ota_config);
 
 
     // --------------------------------------------------------
@@ -561,7 +563,7 @@ if (ota_ret != ESP_OK)
     );
 
 
-    delay(1000);
+    delay(3000);
 
 
     // Normally this function never returns after esp_restart().
