@@ -25,7 +25,7 @@ jobs:
       run: pip install platformio
 
     - name: Build Firmware
-      run: pio run -d ArdEspIDF_OTA
+      run: pio run -d . -e esp32-s3-devkitc-1
 
     - name: Extract Firmware Version
       id: extract_version
