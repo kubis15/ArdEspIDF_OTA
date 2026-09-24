@@ -32,7 +32,7 @@ uint32_t wheel(byte pos) {
 }
 
 void setup() {
-    //neopixelWrite(RGB_BUILTIN, 255, 0, 0);
+    //rgbLedWrite(RGB_BUILTIN, 255, 0, 0);
     Serial.begin(115200);
     delay(1000);
 
@@ -45,14 +45,14 @@ void setup() {
     Serial.println("RGB ON");
 
     // pin, red, green, blue
-    neopixelWrite(LED_PIN, 255, 255, 255);
+    //rgbLedWrite(LED_PIN, 255, 255, 255);
 
     delay(1000);
 
     Serial.println("RGB OFF");
 
     // pin, red, green, blue
-    neopixelWrite(LED_PIN, 1, 1, 1);
+    //rgbLedWrite(LED_PIN, 1, 1, 1);
 
 
     // Initialize NeoPixel (Adafruit) and FastLED

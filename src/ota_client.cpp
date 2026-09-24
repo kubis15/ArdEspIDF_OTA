@@ -170,9 +170,7 @@ esp_err_t check_for_ota_update()
 
     config.url = manifest_url;
     config.cert_pem = GITHUB_ROOT_CA;
-    config.timeout_ms = 8000;
-    config.event_handler = _http_event_handler;
-
+    config.timeout_ms = 15000;
 
     // --------------------------------------------------------
     // Create HTTP client
@@ -485,31 +483,47 @@ esp_err_t check_for_ota_update()
     // --------------------------------------------------------
     // Configure HTTPS OTA
     //
-    // IMPORTANT:
-    //
-    // Your installed ESP-IDF version expects:
-    //
-    // esp_https_ota(
-    //     const esp_http_client_config_t *
-    // )
-    //
-    // Therefore this is intentionally
-    // esp_http_client_config_t.
     // --------------------------------------------------------
+// HTTP configuration for OTA firmware download
+// --------------------------------------------------------
 
-    esp_http_client_config_t ota_config = {};
+esp_http_client_config_t ota_http_config = {};
 
-    ota_config.url = firmware_url;
-    ota_config.cert_pem = GITHUB_ROOT_CA;
-    ota_config.timeout_ms = 15000;
+ota_http_config.url = firmware_url;
+ota_http_config.cert_pem = GITHUB_ROOT_CA;
+ota_http_config.timeout_ms = 15000;
 
 
-    // --------------------------------------------------------
-    // Perform OTA
-    // --------------------------------------------------------
+// --------------------------------------------------------
+// ESP-IDF 5.x OTA configuration
+// --------------------------------------------------------
 
-    esp_err_t ota_ret =
-        esp_https_ota(&ota_config);
+esp_https_ota_config_t ota_config = {};
+
+ota_config.http_config = &ota_http_config;
+
+
+// --------------------------------------------------------
+// Perform OTA
+// --------------------------------------------------------
+
+esp_err_t ota_ret = esp_https_ota(&ota_config);
+
+
+// --------------------------------------------------------
+// Check OTA result
+// --------------------------------------------------------
+
+if (ota_ret != ESP_OK)
+{
+    ESP_LOGE(
+        TAG,
+        "OTA update failed: %s",
+        esp_err_to_name(ota_ret)
+    );
+
+    return ota_ret;
+}
 
 
     // --------------------------------------------------------
