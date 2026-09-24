@@ -72,6 +72,11 @@ void setup() {
         pixels.show();
     }
     Serial.println("\nWiFi Connected!");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+
+    Serial.print("MAC address: ");
+    Serial.println(WiFi.macAddress());
     // Indicate connection (simulated)
     ///pixels.setPixelColor(0, pixels.Color(0, 50, 0)); // green when connected
     ///pixels.show();
