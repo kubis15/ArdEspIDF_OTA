@@ -30,7 +30,8 @@ jobs:
     - name: Extract Firmware Version
       id: extract_version
       run: |
-        echo "version=${PIO_PROJECT_VERSION}" >> $GITHUB_OUTPUT
+        VERSION=$(grep -i "^version" platformio.ini | head -n 1 | awk -F '=' '{print $2}' | tr -d ' "')
+        echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
     - name: Prepare OTA Artifacts
       run: |
