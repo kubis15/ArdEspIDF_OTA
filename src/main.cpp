@@ -77,7 +77,16 @@ void setup() {
     ///pixels.show();
 
     // Run OTA update check
-    check_and_perform_ota();
+    //check_and_perform_ota();
+    esp_err_t ota_result = check_for_ota_update();
+
+    if (ota_result != ESP_OK)
+    {
+        Serial.printf(
+            "OTA check failed: %s\n",
+            esp_err_to_name(ota_result)
+        );
+    }
 }
 
 void loop() {
