@@ -3,7 +3,8 @@
 #include <Adafruit_NeoPixel.h>
 ///#include <FastLED.h>
 #include "ota_client.h"
-#include "esp_netif_sntp.h"
+//#include <esp_netif_sntp.h>
+#include <time.h>
 
 // --- Wi‑Fi credentials ---
 const char* WIFI_SSID = "Moby_2.4_58D0C8";
@@ -83,17 +84,33 @@ void setup() {
     Serial.print("MAC address: ");
     Serial.println(WiFi.macAddress());
 
-    esp_sntp_config_t config =
-        ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    // esp_sntp_config_t config =
+    //     ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
 
-    esp_netif_sntp_init(&config);
+    // esp_netif_sntp_init(&config);
 
-    esp_err_t err =
-        esp_netif_sntp_sync_wait(pdMS_TO_TICKS(10000));
+    // esp_err_t err =
+    //     esp_netif_sntp_sync_wait(pdMS_TO_TICKS(10000));
 
-    if (err == ESP_OK) {
-        Serial.println("Time synchronized");
+    // if (err == ESP_OK) {
+    //     Serial.println("Time synchronized");
+    // }
+
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+
+    Serial.print("Synchronizing time");
+
+    //time_t now = time(nullptr);
+
+    while (now < 1700000000) {
+        delay(500);
+        Serial.print(".");
+        now = time(nullptr);
     }
+
+    Serial.println();
+    Serial.printf("Unix time: %lld\n", (long long)now);
+    Serial.printf("Current time: %s", ctime(&now));
 
     // Indicate connection (simulated)
     ///pixels.setPixelColor(0, pixels.Color(0, 50, 0)); // green when connected
