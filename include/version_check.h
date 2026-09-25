@@ -13,4 +13,7 @@ String getLocalVersion();
 // Return the version string from a remote ESP32 reachable via baseUrl.
 String getRemoteVersion(const char *baseUrl);
 
+// Start the AsyncWebServer that serves /version (call from setup()).
+void startVersionServer();
+
 #endif // VERSION_CHECK_H
