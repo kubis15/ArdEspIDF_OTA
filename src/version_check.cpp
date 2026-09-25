@@ -28,7 +28,7 @@ static String _fetchVersion(const String &fullUrl)
     http.end();   // close connection early – we already have the data
 
     // ---- Parse JSON ---------------------------------------------------------
-    StaticJsonDocument<256> doc;   // small enough for the version payload
+    JsonDocument doc(256);   // small enough for the version payload
     DeserializationError err = deserializeJson(doc, payload);
     if (err) {
         ESP_LOGW("VERSION_CHECK", "JSON parse error (%s) payload: %s",
@@ -37,7 +37,7 @@ static String _fetchVersion(const String &fullUrl)
     }
 
     // ---- Extract "version" ---------------------------------------------------
-    if (doc.containsKey("version")) {
+    if (doc["version"].is<String>()) {
         version = doc["version"].as<String>();
     } else {
         ESP_LOGW("VERSION_CHECK", "JSON missing \"version\" field: %s", payload.c_str());

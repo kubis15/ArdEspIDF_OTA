@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
+#include <esp_log.h>
 
 // Get the firmware version reported by this ESP32's own web server.
 String getLocalVersion();
