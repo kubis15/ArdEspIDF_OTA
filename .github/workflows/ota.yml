@@ -3,14 +3,20 @@ name: ESP32 OTA GitHub Pages CI/CD
 on:
   push:
     branches:
-      - main
+      - version-feature-testing
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
 
 jobs:
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -99,11 +105,35 @@ jobs:
           echo "Generated firmware.json:"
           cat docs/firmware.json
 
+          echo ""
+          echo "Files prepared for OTA:"
+          ls -lh docs
+
       # -------------------------------------------------------
-      # Deploy
+      # Upload Pages artifact
       # -------------------------------------------------------
-      - name: Deploy to GitHub Pages Branch
-        uses: JamesIves/github-pages-deploy-action@v4
+      - name: Upload GitHub Pages Artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          branch: gh-pages
-          folder: docs
+          path: ./docs
+
+  deploy:
+    needs: build
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    permissions:
+      pages: write
+      id-token: write
+
+    steps:
+      # -------------------------------------------------------
+      # Deploy GitHub Pages
+      # -------------------------------------------------------
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
