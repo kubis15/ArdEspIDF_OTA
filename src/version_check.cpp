@@ -1,8 +1,10 @@
+// src/version_check.cpp
 #include "version_check.h"
+#include <esp_log.h>          // needed for ESP_LOGW / ESP_LOGI
 
 // --------------------------------------------------------------------------
-// Internal helper: fetch JSON from the given URL and extract the "version" field.
-// Returns empty string on any error (network, HTTP status, JSON parse, etc.).
+// Internal helper: fetch JSON from the given URL and extract the "version"
+// field. Returns empty string on any error.
 // --------------------------------------------------------------------------
 static String _fetchVersion(const String &fullUrl)
 {
@@ -28,7 +30,7 @@ static String _fetchVersion(const String &fullUrl)
     http.end();   // close connection early – we already have the data
 
     // ---- Parse JSON ---------------------------------------------------------
-    JsonDocument doc(256);   // small enough for the version payload
+    DynamicJsonDocument doc(256);   // small enough for the version payload
     DeserializationError err = deserializeJson(doc, payload);
     if (err) {
         ESP_LOGW("VERSION_CHECK", "JSON parse error (%s) payload: %s",
@@ -37,10 +39,12 @@ static String _fetchVersion(const String &fullUrl)
     }
 
     // ---- Extract "version" ---------------------------------------------------
-    if (doc["version"].is<String>()) {
-        version = doc["version"].as<String>();
+    if (doc["version"].is<const char*>()) {
+        const char *verCStr = doc["version"].as<const char*>();
+        version = String(verCStr);            // convert to Arduino String
     } else {
-        ESP_LOGW("VERSION_CHECK", "JSON missing \"version\" field: %s", payload.c_str());
+        ESP_LOGW("VERSION_CHECK", "JSON missing \"version\" field: %s",
+                 payload.c_str());
     }
 
     return version;
@@ -66,7 +70,6 @@ String getLocalVersion()
 // --------------------------------------------------------------------------
 // Public: get version from a remote ESP32 (or any HTTP server exposing the
 // same JSON). `baseUrl` should NOT contain a trailing slash.
-// Example: "http://192.168.88.5"  or  "http://my-vpn-host.example.com"
 // --------------------------------------------------------------------------
 String getRemoteVersion(const char *baseUrl)
 {
