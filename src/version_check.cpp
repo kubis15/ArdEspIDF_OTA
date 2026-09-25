@@ -1,23 +1,16 @@
 // src/version_check.cpp
 #include "version_check.h"
-#include <esp_log.h>          // needed for ESP_LOGW / ESP_LOGI
+#include <esp_log.h>
 
-// --------------------------------------------------------------------------
-// Internal helper: fetch JSON from the given URL and extract the "version"
-// field. Returns empty string on any error.
-// --------------------------------------------------------------------------
-static String _fetchVersion(const String &fullUrl)
-{
+static String _fetchVersion(const String &fullUrl) {
     HTTPClient http;
     String version;
 
-    // ---- Open connection ---------------------------------------------------
     if (!http.begin(fullUrl)) {
         ESP_LOGW("VERSION_CHECK", "Failed to begin HTTP: %s", fullUrl.c_str());
         return "";
     }
 
-    // ---- Perform GET -------------------------------------------------------
     int httpCode = http.GET();
     if (httpCode != HTTP_CODE_OK) {
         ESP_LOGW("VERSION_CHECK", "GET %s returned %d", fullUrl.c_str(), httpCode);
@@ -25,12 +18,10 @@ static String _fetchVersion(const String &fullUrl)
         return "";
     }
 
-    // ---- Read payload -------------------------------------------------------
     String payload = http.getString();
-    http.end();   // close connection early – we already have the data
+    http.end();
 
-    // ---- Parse JSON ---------------------------------------------------------
-    DynamicJsonDocument doc(256);   // small enough for the version payload
+    JsonDocument doc; // use the non‑deprecated type
     DeserializationError err = deserializeJson(doc, payload);
     if (err) {
         ESP_LOGW("VERSION_CHECK", "JSON parse error (%s) payload: %s",
@@ -38,52 +29,30 @@ static String _fetchVersion(const String &fullUrl)
         return "";
     }
 
-    // ---- Extract "version" ---------------------------------------------------
     if (doc["version"].is<const char*>()) {
-        const char *verCStr = doc["version"].as<const char*>();
-        version = String(verCStr);            // convert to Arduino String
+        version = String(doc["version"].as<const char*>());
     } else {
-        ESP_LOGW("VERSION_CHECK", "JSON missing \"version\" field: %s",
-                 payload.c_str());
+        ESP_LOGW("VERSION_CHECK", "JSON missing \"version\" field: %s", payload.c_str());
     }
-
     return version;
 }
 
-// --------------------------------------------------------------------------
-// Public: get version from the ESP32 that’s running this code.
-// --------------------------------------------------------------------------
-String getLocalVersion()
-{
-    // WiFi must already be connected.
+String getLocalVersion() {
     if (WiFi.status() != WL_CONNECTED) {
         ESP_LOGW("VERSION_CHECK", "WiFi not connected – cannot query local version");
         return "";
     }
-
     IPAddress ip = WiFi.localIP();
-    String url = "http://" + ip.toString() + "/version";
-
-    return _fetchVersion(url);
+    return _fetchVersion("http://" + ip.toString() + "/version");
 }
 
-// --------------------------------------------------------------------------
-// Public: get version from a remote ESP32 (or any HTTP server exposing the
-// same JSON). `baseUrl` should NOT contain a trailing slash.
-// --------------------------------------------------------------------------
-String getRemoteVersion(const char *baseUrl)
-{
-    if (baseUrl == nullptr) {
+String getRemoteVersion(const char *baseUrl) {
+    if (!baseUrl) {
         ESP_LOGW("VERSION_CHECK", "NULL baseUrl supplied");
         return "";
     }
-
-    // Ensure exactly one '/' between base URL and endpoint.
     String url = String(baseUrl);
-    if (!url.endsWith("/")) {
-        url += "/";
-    }
+    if (!url.endsWith("/")) url += "/";
     url += "version";
-
     return _fetchVersion(url);
 }
