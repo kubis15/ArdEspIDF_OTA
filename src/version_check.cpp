@@ -3,6 +3,11 @@
 #include "version_check.h"
 #include <esp_log.h>
 
+//#include <HTTPClient.h>
+//#include <ArduinoJson.h>
+
+// 1. Define a global flag for manual OTA update requests
+volatile bool pendingOTAUpdate = false;
 // 1. Declare bootMillis globally at file scope
 uint32_t bootMillis = 0;
 
@@ -83,6 +88,51 @@ void startVersionServer()
     ESP_LOGI("VERSION", "Sending %s", buffer);
     request->send(200, "application/json", buffer);
     });
+    
+    // 2. HTTP Endpoint Handler
+    server.on("/OTAnow", HTTP_GET, [](AsyncWebServerRequest *request) {
+        ESP_LOGI("OTA", "Manual update triggered via HTTP GET /OTAnow");
+        
+        // Set flag for main loop execution
+        pendingOTAUpdate = true;
+        
+        // Respond immediately to free up the HTTP connection
+        request->send(200, "text/plain", "OTA Update Queued. Starting shortly...");
+    });
+
     server.begin();                         // launch async server
-    ESP_LOGI("VERSION", "Async /version endpoint started on port 80");
+    ESP_LOGI("VERSION", "Async /version and /OTAnow endpoints started on port 80");
 }
+
+//+++++++++++++++++++++++++++//+++++++++++++++++++++++++++
+// Check for OTA update by comparing local and remote versions
+// Do i need this really? I already have check_for_ota_update()
+// in ota_client.cpp, which does the same thing and more.
+//+++++++++++++++++++++++++++//+++++++++++++++++++++++++++
+
+// bool checkForOTAUpdate() {
+//     if (WiFi.status() != WL_CONNECTED) {
+//         ESP_LOGW("OTA_CHECK", "WiFi not connected");
+//         return false;
+//     }
+
+//     // Pass the build flag directly
+//     String remoteVersion = _fetchVersion(OTA_URL);
+//     if (remoteVersion.length() == 0) {
+//         ESP_LOGE("OTA_CHECK", "Failed to obtain remote version from %s", OTA_URL);
+//         return false;
+//     }
+
+//     String localVersion = String(CURRENT_VERSION);
+
+//     ESP_LOGI("OTA_CHECK", "Local: %s | Remote: %s", localVersion.c_str(), remoteVersion.c_str());
+
+//     if (remoteVersion != localVersion) {
+//         ESP_LOGI("OTA_CHECK", "New version detected! Preparing update...");
+//         return true;
+//     }
+
+//     ESP_LOGI("OTA_CHECK", "Firmware is up to date.");
+//     return false;
+// }
+//+++++++++++++++++++++++++++//+++++++++++++++++++++++++++

@@ -9,13 +9,15 @@
 
 // Declare bootMillis as external so it can be referenced across modules
 extern uint32_t bootMillis;
+// 1. Define a global flag for manual OTA update requests
+extern volatile bool pendingOTAUpdate;
 
 // --- Wi‑Fi credentials ---
 const char* WIFI_SSID = "Moby_2.4_58D0C8";
 const char* WIFI_PASS = "B8FBB358D0C8";
 
 // --- NeoPixel configuration ---
-#define LED_PIN 48 ///48          // YD‑ESP32‑S3 onboard WS2812 (IO48)
+#define LED_PIN 38 ///48          // YD‑ESP32‑S3 onboard WS2812 (IO48)
 #define NUMPIXELS 1         // One RGB LED only
 Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 // FastLED array
@@ -51,14 +53,14 @@ void setup() {
     Serial.println("RGB ON");
 
     // pin, red, green, blue
-    //rgbLedWrite(LED_PIN, 255, 255, 255);
+    rgbLedWrite(LED_PIN, 255, 255, 255);
 
-    delay(1000);
+    delay(2000);
 
     Serial.println("RGB OFF");
 
     // pin, red, green, blue
-    //rgbLedWrite(LED_PIN, 1, 1, 1);
+    rgbLedWrite(LED_PIN, 1, 1, 1);
 
 
     // Initialize NeoPixel (Adafruit) and FastLED
@@ -146,11 +148,20 @@ void loop() {
         delay(20);
     }
 
-    // Cycle colors using FastLED
-    ///Serial.println("RED");
-    ///leds[0] = CRGB::Red;
-    ///FastLED.show();
-    ///delay(2000);
+    // Process scheduled or flagged OTA requests
+    // Later to convert to a FreeRTOS task, but for now, just check the flag in loop()
+    if (pendingOTAUpdate) {
+        pendingOTAUpdate = false; // Reset flag
+        
+        ESP_LOGI("OTA", "Starting manual OTA update check...");
+        esp_err_t ota_result = check_for_ota_update();
+
+        if (ota_result != ESP_OK) {
+            ESP_LOGE("OTA", "OTA check failed: %s", esp_err_to_name(ota_result));
+        }
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(10)); // Yield to prevent WDT issues
 
     Serial.println("GREEN");
     ///leds[0] = CRGB::Green;
@@ -160,7 +171,7 @@ void loop() {
     ///Serial.println("BLUE");
     ///leds[0] = CRGB::Blue;
     ///FastLED.show();
-    delay(2000);
+    ///delay(2000);
 
     // Turn off LED
     Serial.println("OFF");
