@@ -11,4 +11,4 @@
  *
  *   Other esp_err_t value - an error occurred.
  */
-esp_err_t check_for_ota_update();
+esp_err_t check_for_ota_update(bool force_update = false);

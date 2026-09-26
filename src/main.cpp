@@ -7,6 +7,11 @@
 //#include <esp_netif_sntp.h>
 #include <time.h>
 
+#include "esp_http_client.h"
+#include "esp_https_ota.h"
+#include "ota_client.h"
+#include "github_root_ca.h"
+
 // Declare bootMillis as external so it can be referenced across modules
 extern uint32_t bootMillis;
 // 1. Define a global flag for manual OTA update requests
@@ -148,16 +153,31 @@ void loop() {
         delay(20);
     }
 
+    Serial.printf("Looping... %s\n", pendingOTAUpdate ? "true" : "false");
     // Process scheduled or flagged OTA requests
     // Later to convert to a FreeRTOS task, but for now, just check the flag in loop()
     if (pendingOTAUpdate) {
         pendingOTAUpdate = false; // Reset flag
         
         ESP_LOGI("OTA", "Starting manual OTA update check...");
-        esp_err_t ota_result = check_for_ota_update();
+        Serial.println("Before esp_https_ota()");
+        esp_err_t ota_result = check_for_ota_update(true); // Pass true for manual update
+        
+        // --------------------------------------------------------
+        // Perform OTA
+        // --------------------------------------------------------
+        
+        //esp_err_t ota_ret =
+        //    esp_https_ota(&ota_config);
 
-        if (ota_result != ESP_OK) {
-            ESP_LOGE("OTA", "OTA check failed: %s", esp_err_to_name(ota_result));
+        Serial.println("After esp_https_ota()");
+
+        if (ota_result != ESP_OK)
+        {
+            Serial.printf(
+                "OTA check failed: %s\n",
+                esp_err_to_name(ota_result)
+            );
         }
     }
 

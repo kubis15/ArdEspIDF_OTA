@@ -86,7 +86,7 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 // CHECK FOR OTA UPDATE
 // ============================================================
 
-esp_err_t check_for_ota_update()
+esp_err_t check_for_ota_update(bool force_update)
 {
     char manifest_url[256];
 
@@ -457,7 +457,8 @@ esp_err_t check_for_ota_update()
     esp_http_client_cleanup(client);
     client = nullptr;
 
-
+    // 
+    update_required = force_update || (strcmp(remote_version, CURRENT_VERSION) != 0);
     // --------------------------------------------------------
     // Firmware is already current
     // --------------------------------------------------------
