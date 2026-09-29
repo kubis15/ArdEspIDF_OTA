@@ -1,0 +1,109 @@
+name: ESP32 OTA GitHub Pages CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # -------------------------------------------------------
+      # Checkout
+      # -------------------------------------------------------
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # -------------------------------------------------------
+      # Python
+      # -------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      # -------------------------------------------------------
+      # PlatformIO
+      # -------------------------------------------------------
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      # -------------------------------------------------------
+      # Read version from [project] section of platformio.ini
+      # -------------------------------------------------------
+      - name: Extract Firmware Version
+        id: extract_version
+        shell: bash
+        run: |
+          VERSION=$(awk '
+            /^\[project\]/ {in_project=1; next}
+            /^\[/ {in_project=0}
+            in_project && /^[[:space:]]*version[[:space:]]*=/ {
+              split($0, a, "=")
+              gsub(/^[[:space:]]+|[[:space:]]+$/, "", a[2])
+              print a[2]
+              exit
+            }
+          ' platformio.ini)
+
+          if [ -z "$VERSION" ]; then
+            echo "ERROR: Could not find version in [project] section"
+            exit 1
+          fi
+
+          echo "Firmware version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # -------------------------------------------------------
+      # Build
+      # -------------------------------------------------------
+      - name: Build Firmware
+        run: |
+          echo "Building firmware version ${{ steps.extract_version.outputs.version }}"
+          pio run -d . -e esp32-s3-devkitc-1
+
+      # -------------------------------------------------------
+      # Prepare GitHub Pages files
+      # -------------------------------------------------------
+      - name: Prepare OTA Artifacts
+        run: |
+          mkdir -p docs
+
+          cp \
+            .pio/build/esp32-s3-devkitc-1/firmware.bin \
+            docs/firmware.bin
+
+      # -------------------------------------------------------
+      # Generate firmware.json
+      # -------------------------------------------------------
+      - name: Generate firmware.json
+        shell: bash
+        run: |
+          OWNER="${GITHUB_REPOSITORY_OWNER}"
+          NAME_ONLY="${GITHUB_REPOSITORY#*/}"
+          VERSION="${{ steps.extract_version.outputs.version }}"
+
+          cat > docs/firmware.json <<EOF
+          {
+            "version": "${VERSION}",
+            "url": "https://${OWNER}.github.io/${NAME_ONLY}/firmware.bin"
+          }
+          EOF
+
+          echo "Generated firmware.json:"
+          cat docs/firmware.json
+
+      # -------------------------------------------------------
+      # Deploy
+      # -------------------------------------------------------
+      - name: Deploy to GitHub Pages Branch
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: docs
