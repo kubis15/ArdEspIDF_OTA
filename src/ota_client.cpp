@@ -26,12 +26,35 @@ static size_t response_len = 0;
 
 // ============================================================
 // HTTP EVENT HANDLER
+//
+// Accumulates the manifest body into response_buffer.
+//
+// Redirect-safe: auto-redirect is enabled on the client and a
+// 30x response may carry its own small HTML body. Without the
+// guards below, that body would land in front of the real
+// firmware.json and corrupt the JSON parse.
 // ============================================================
 
 static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 {
     switch (evt->event_id)
     {
+        case HTTP_EVENT_REDIRECT:
+        {
+            // About to follow a 30x. Discard anything buffered
+            // from the redirect response itself.
+            ESP_LOGI(
+                TAG,
+                "HTTP_EVENT_REDIRECT: discarding %u buffered bytes",
+                (unsigned)response_len
+            );
+
+            response_len = 0;
+            response_buffer[0] = '\0';
+
+            break;
+        }
+
         case HTTP_EVENT_ON_DATA:
         {
             ESP_LOGI(
@@ -42,6 +65,23 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
 
             if (evt->data_len <= 0)
             {
+                break;
+            }
+
+            // Only buffer the body of a 200 response. Bodies of
+            // redirects and error pages are ignored.
+            const int status =
+                esp_http_client_get_status_code(evt->client);
+
+            if (status != 200)
+            {
+                ESP_LOGW(
+                    TAG,
+                    "Ignoring %d body bytes of HTTP %d",
+                    evt->data_len,
+                    status
+                );
+
                 break;
             }
 
@@ -79,7 +119,7 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     }
 
     return ESP_OK;
-}
+}  
 
 
 // ============================================================
@@ -440,25 +480,28 @@ esp_err_t check_for_ota_update(bool force_update)
 
 
     // --------------------------------------------------------
-    // Compare versions BEFORE destroying JsonDocument
-    // --------------------------------------------------------
-
-    bool update_required =
-        strcmp(
-            remote_version,
-            CURRENT_VERSION
-        ) != 0;
-
-
-    // --------------------------------------------------------
     // Manifest HTTP connection is no longer needed.
     // --------------------------------------------------------
 
     esp_http_client_cleanup(client);
     client = nullptr;
 
-    // 
-    update_required = force_update || (strcmp(remote_version, CURRENT_VERSION) != 0);
+
+    // --------------------------------------------------------
+    // Compare versions
+    //
+    // remote_version still points into ArduinoJson's
+    // JsonDocument, which lives until this function returns,
+    // so reading it after the HTTP cleanup is safe.
+    // --------------------------------------------------------
+
+    bool update_required =
+        force_update ||
+        strcmp(
+            remote_version,
+            CURRENT_VERSION
+        ) != 0;
+
     // --------------------------------------------------------
     // Firmware is already current
     // --------------------------------------------------------

@@ -1,139 +1,234 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
-#include <Adafruit_NeoPixel.h>
-#include "version_check.h"
-#include "ota_client.h"
-//#include <esp_netif_sntp.h>
+#include <Preferences.h>
 #include <time.h>
 
-#include "esp_http_client.h"
-#include "esp_https_ota.h"
+#include "version_check.h"
 #include "ota_client.h"
-#include "github_root_ca.h"
 
 // Declare bootMillis as external so it can be referenced across modules
 extern uint32_t bootMillis;
-// 1. Define a global flag for manual OTA update requests
+// Global flag for manual OTA update requests (set by /OTAnow)
 extern volatile bool pendingOTAUpdate;
 
-// --- Wi‑Fi credentials ---
-const char* WIFI_SSID = "Moby_2.4_58D0C8";
-const char* WIFI_PASS = "B8FBB358D0C8";
+// ============================================================
+// Configuration
+// ============================================================
 
-// --- NeoPixel configuration ---
-#define LED_PIN 38 ///48          // YD‑ESP32‑S3 onboard WS2812 (IO48)
-#define NUMPIXELS 1         // One RGB LED only
-Adafruit_NeoPixel pixels(NUMPIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
-// FastLED array
-///CRGB leds[NUMPIXELS];
+// Boot-time budgets (ms)
+static const uint32_t WIFI_CONNECT_TIMEOUT_MS = 30000;   // then fall back to AP
+static const uint32_t NTP_SYNC_TIMEOUT_MS     = 10000;   // best-effort only
+static const uint32_t AP_STA_RETRY_MS         = 300000;  // retry STA every 5 min from AP
 
-// --- Helper: rainbow color wheel for Adafruit NeoPixel ---
-uint32_t wheel(byte pos) {
-    pos = 255 - pos;
-    if (pos < 85) {
-        return pixels.Color(255 - pos * 3, 0, pos * 3);
-    } else if (pos < 170) {
-        pos -= 85;
-        return pixels.Color(0, pos * 3, 255 - pos * 3);
-    } else {
-        pos -= 170;
-        return pixels.Color(pos * 3, 255 - pos * 3, 0);
+// Supplied via build_flags from secrets.ini; absent -> empty -> the board
+// boots straight into the recovery AP until provisioned over /save.
+#ifndef WIFI_SSID_DEFAULT
+#define WIFI_SSID_DEFAULT ""
+#endif
+#ifndef WIFI_PASS_DEFAULT
+#define WIFI_PASS_DEFAULT ""
+#endif
+#ifndef AP_PASSWORD
+#define AP_PASSWORD "recover-me"     // WPA2 needs >= 8 chars; change this
+#endif
+
+// YD-ESP32-S3 onboard WS2812 data pin
+#define LED_PIN 48
+
+static Preferences prefs;
+static String   wifiSsid;
+static String   wifiPass;
+static bool     apMode   = false;
+static volatile uint32_t rebootAt = 0;   // 0 = none pending
+
+// ============================================================
+// Helpers
+// ============================================================
+
+static void ledStatus(uint8_t r, uint8_t g, uint8_t b) {
+    rgbLedWrite(LED_PIN, r, g, b);
+}
+
+static void saveCredentials(const String &ssid, const String &pass) {
+    prefs.begin("wifi", false);
+    prefs.putString("ssid", ssid);
+    prefs.putString("pass", pass);
+    prefs.end();
+}
+
+static void loadCredentials() {
+    prefs.begin("wifi", true);               // read-only
+    wifiSsid = prefs.getString("ssid", "");
+    wifiPass = prefs.getString("pass", "");
+    prefs.end();
+
+    // First boot of a board flashed with compiled-in credentials: seed NVS so
+    // later credential-free builds keep working. This is what lets us stop
+    // baking secrets into the published binary without stranding any board.
+    if (wifiSsid.isEmpty() && strlen(WIFI_SSID_DEFAULT) > 0) {
+        wifiSsid = WIFI_SSID_DEFAULT;
+        wifiPass = WIFI_PASS_DEFAULT;
+        saveCredentials(wifiSsid, wifiPass);
+        Serial.println("Seeded NVS credentials from build-time defaults.");
     }
 }
 
-void setup() {
-    // 2. Capture the boot timestamp early in setup()
-    bootMillis = millis();
-    
-    Serial.begin(115200);
-    delay(1000);
-
-    Serial.printf("\n--- Starting Firmware v%s ---\n", (CURRENT_VERSION));
-    Serial.println("Boot reason: " + String(esp_reset_reason()));
-
-    Serial.printf("Flash: %u MB\n", ESP.getFlashChipSize() / 1024 / 1024);
-    Serial.printf("PSRAM: %u MB\n", ESP.getPsramSize() / 1024 / 1024);
-
-    Serial.println("RGB ON");
-
-    // pin, red, green, blue
-    rgbLedWrite(LED_PIN, 255, 255, 255);
-
-    delay(2000);
-
-    Serial.println("RGB OFF");
-
-    // pin, red, green, blue
-    rgbLedWrite(LED_PIN, 1, 1, 1);
-
-
-    // Initialize NeoPixel (Adafruit) and FastLED
-    pixels.begin();
-    pixels.setBrightness(20);
-    pixels.clear();
-    pixels.show();
-    delay(10000);
-
-    Serial.println("NeoPixel and FastLED initialized");
-    
-    time_t now = time(nullptr);
-    Serial.printf("Unix time: %lld\n", (long long)now);
-    Serial.printf("Current time: %s\n", ctime(&now));
-
-    // Connect to Wi‑Fi (commented out for now)
-    WiFi.begin(WIFI_SSID, WIFI_PASS);
-    Serial.print("Connecting to WiFi");
-    while (WiFi.status() != WL_CONNECTED) {
-        delay(500);
-        Serial.print(".");
-        pixels.setPixelColor(0, pixels.Color(0, 0, 50)); // blue while connecting
-        pixels.show();
+static bool connectSTA(uint32_t timeoutMs) {
+    if (wifiSsid.isEmpty()) {
+        Serial.println("No WiFi credentials provisioned.");
+        return false;
     }
-    Serial.println("\nWiFi Connected!");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
 
-    Serial.print("MAC address: ");
-    Serial.println(WiFi.macAddress());
+    Serial.printf("Connecting to \"%s\"", wifiSsid.c_str());
 
-    // esp_sntp_config_t config =
-    //     ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    WiFi.mode(WIFI_STA);
+    WiFi.setSleep(false);
+    WiFi.begin(wifiSsid.c_str(), wifiPass.c_str());
 
-    // esp_netif_sntp_init(&config);
+    const uint32_t deadline = millis() + timeoutMs;
+    bool blink = false;
 
-    // esp_err_t err =
-    //     esp_netif_sntp_sync_wait(pdMS_TO_TICKS(10000));
+    while (WiFi.status() != WL_CONNECTED) {
+        // Signed-difference compare is rollover-safe across the ~49-day millis() wrap.
+        if ((int32_t)(millis() - deadline) >= 0) {
+            Serial.printf("\nWiFi connect timed out after %u ms (status %d)\n",
+                          timeoutMs, WiFi.status());
+            return false;
+        }
+        blink = !blink;
+        ledStatus(0, 0, blink ? 50 : 0);          // pulsing blue = connecting
+        Serial.print(".");
+        delay(500);
+    }
 
-    // if (err == ESP_OK) {
-    //     Serial.println("Time synchronized");
-    // }
+    Serial.printf("\nWiFi connected. IP %s  MAC %s\n",
+                  WiFi.localIP().toString().c_str(),
+                  WiFi.macAddress().c_str());
+    ledStatus(0, 50, 0);                          // green = online
+    return true;
+}
 
+// Best-effort. Never fatal: nothing in the OTA path needs a correct clock
+// (mbedTLS cert date checks are off in the default IDF config), the
+// timestamps are for logging.
+static bool syncTime(uint32_t timeoutMs) {
     configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-
     Serial.print("Synchronizing time");
 
-    //time_t now = time(nullptr);
+    const uint32_t deadline = millis() + timeoutMs;
+    time_t now = time(nullptr);
+
+    // 1700000000 unix equivalent of 2023-11-14 22:13:20 UTC
 
     while (now < 1700000000) {
+        if ((int32_t)(millis() - deadline) >= 0) {
+            Serial.println("\nNTP sync timed out - continuing with unset clock.");
+            return false;
+        }
         delay(500);
         Serial.print(".");
         now = time(nullptr);
     }
 
-    Serial.println();
-    Serial.printf("Unix time: %lld\n", (long long)now);
-    Serial.printf("Current time: %s", ctime(&now));
+    Serial.printf("\nTime synced: %s", ctime(&now));
+    return true;
+}
 
-    // Start the AsyncWebServer that serves /version
+// ============================================================
+// Recovery AP
+// ============================================================
+
+static AsyncWebServer apServer(80);
+
+static void startRecoveryAP() {
+    apMode = true;
+
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    char ssid[32];
+    snprintf(ssid, sizeof(ssid), "ESP32-OTA-Recovery-%02X%02X", mac[4], mac[5]);
+
+    WiFi.mode(WIFI_AP);
+    WiFi.softAP(ssid, AP_PASSWORD);
+
+    Serial.printf("\n*** RECOVERY AP ***\n  SSID: %s\n  Pass: %s\n  URL:  http://%s/\n",
+                  ssid, AP_PASSWORD, WiFi.softAPIP().toString().c_str());
+    ledStatus(50, 25, 0);                         // amber = recovery
+
+    // Register handlers and start the server only once. This function is
+    // re-entered from the loop() retry path, and re-registering handlers on
+    // the live server would stack up duplicates.
+    static bool serverStarted = false;
+    if (serverStarted) return;
+    serverStarted = true;
+
+    apServer.on("/", HTTP_GET, [](AsyncWebServerRequest *req) {
+        req->send(200, "text/html",
+            "<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'>"
+            "<h2>OTA Recovery</h2>"
+            "<p>Firmware v" CURRENT_VERSION "</p>"
+            "<form method=POST action=/save>"
+            "<p>SSID<br><input name=ssid maxlength=32 required>"
+            "<p>Password<br><input name=pass type=password maxlength=63>"
+            "<p><button>Save &amp; reboot</button></form>");
+    });
+
+    // curl -X POST http://192.168.4.1/save \
+    //     -d "ssid=MyWiFiName" \
+    //     -d "pass=MyWiFiPassword"
+
+    apServer.on("/save", HTTP_POST, [](AsyncWebServerRequest *req) {
+        if (!req->hasParam("ssid", true)) {
+            req->send(400, "text/plain", "missing ssid");
+            return;
+        }
+        String ssid = req->getParam("ssid", true)->value();
+        String pass = req->hasParam("pass", true)
+                        ? req->getParam("pass", true)->value() : String();
+
+        saveCredentials(ssid, pass);
+        Serial.printf("Saved credentials for \"%s\" - rebooting\n", ssid.c_str());
+        req->send(200, "text/html", "<h3>Saved. Rebooting...</h3>");
+
+        // Do NOT esp_restart() here - this runs on the AsyncTCP task and the
+        // response would never flush. Hand the reboot to loop().
+        rebootAt = millis() + 1000;
+    });
+
+    apServer.begin();
+}
+
+// ============================================================
+// Setup
+// ============================================================
+
+void setup() {
+    // Capture the boot timestamp early in setup()
+    bootMillis = millis();
+
+    Serial.begin(115200);
+    delay(1000);
+
+    Serial.printf("\n--- Starting Firmware v%s ---\n", CURRENT_VERSION);
+    Serial.printf("Boot reason: %d\n", esp_reset_reason());
+    Serial.printf("Flash: %u MB   PSRAM: %u MB\n",
+                  ESP.getFlashChipSize() / (1024 * 1024),
+                  ESP.getPsramSize() / (1024 * 1024));
+
+    loadCredentials();
+
+    if (!connectSTA(WIFI_CONNECT_TIMEOUT_MS)) {
+        startRecoveryAP();
+        return;                          // loop() handles retry + reboot
+    }
+
+    syncTime(NTP_SYNC_TIMEOUT_MS);       // best-effort, never fatal
+
+    // Start the AsyncWebServer that serves /version and /OTAnow
     startVersionServer();
 
-    // Indicate connection (simulated)
-    ///pixels.setPixelColor(0, pixels.Color(0, 50, 0)); // green when connected
-    ///pixels.show();
-
     // Run OTA update check
-    //check_and_perform_ota();
     esp_err_t ota_result = check_for_ota_update();
 
     if (ota_result != ESP_OK)
@@ -145,32 +240,52 @@ void setup() {
     }
 }
 
+// ============================================================
+// Loop
+// ============================================================
+
 void loop() {
-    // Example rainbow animation using Adafruit NeoPixel helper (commented out)
-    for (int i = 0; i < 256; i++) {
-        pixels.setPixelColor(0, wheel(i));
-        pixels.show();
-        delay(20);
+    // Deferred reboot from the /save handler (never restart on the AsyncTCP task)
+    if (rebootAt && (int32_t)(millis() - rebootAt) >= 0) {
+        Serial.println("Rebooting to apply new credentials...");
+        Serial.flush();
+        esp_restart();
     }
 
-    Serial.printf("Looping... %s\n", pendingOTAUpdate ? "true" : "false");
+    // Recovery mode: retry saved credentials periodically. No OTA work here -
+    // the AP has no uplink, it only serves / and /save on the local network.
+    if (apMode) {
+        static uint32_t nextRetry = AP_STA_RETRY_MS;
+        if ((int32_t)(millis() - nextRetry) >= 0) {
+            nextRetry = millis() + AP_STA_RETRY_MS;
+            Serial.println("Retrying saved credentials from recovery mode...");
+            loadCredentials();
+            WiFi.softAPdisconnect(true);
+            if (connectSTA(15000)) {
+                esp_restart();           // simplest: reboot into the normal path
+            }
+            startRecoveryAP();           // still no luck - back to recovery
+        }
+        ledStatus(50, 25, 0);
+        delay(200);
+        return;
+    }
+
+    // Heartbeat log, throttled so it doesn't flood the console
+    static uint32_t nextHeartbeat = 0;
+    if ((int32_t)(millis() - nextHeartbeat) >= 0) {
+        nextHeartbeat = millis() + 2000;
+        Serial.printf("Looping... %s\n", pendingOTAUpdate ? "true" : "false");
+    }
+
     // Process scheduled or flagged OTA requests
     // Later to convert to a FreeRTOS task, but for now, just check the flag in loop()
     if (pendingOTAUpdate) {
         pendingOTAUpdate = false; // Reset flag
-        
-        ESP_LOGI("OTA", "Starting manual OTA update check...");
-        Serial.println("Before esp_https_ota()");
-        esp_err_t ota_result = check_for_ota_update(true); // Pass true for manual update
-        
-        // --------------------------------------------------------
-        // Perform OTA
-        // --------------------------------------------------------
-        
-        //esp_err_t ota_ret =
-        //    esp_https_ota(&ota_config);
 
-        Serial.println("After esp_https_ota()");
+        ESP_LOGI("OTA", "Starting manual OTA update check...");
+        Serial.println("Starting manual OTA update...");
+        esp_err_t ota_result = check_for_ota_update(true); // true = force update
 
         if (ota_result != ESP_OK)
         {
@@ -182,20 +297,4 @@ void loop() {
     }
 
     vTaskDelay(pdMS_TO_TICKS(10)); // Yield to prevent WDT issues
-
-    Serial.println("GREEN");
-    ///leds[0] = CRGB::Green;
-    ///FastLED.show();
-    ///delay(2000);
-
-    ///Serial.println("BLUE");
-    ///leds[0] = CRGB::Blue;
-    ///FastLED.show();
-    ///delay(2000);
-
-    // Turn off LED
-    Serial.println("OFF");
-    ///leds[0] = CRGB::Black;
-    ///FastLED.show();
-    ///    delay(2000);
 }
