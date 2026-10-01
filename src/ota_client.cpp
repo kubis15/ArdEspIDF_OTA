@@ -9,6 +9,7 @@
 #include <ArduinoJson.h>
 
 #include "ota_client.h"
+#include "rollback.h"
 
 
 static const char *TAG = "OTA_CLIENT";
@@ -491,6 +492,30 @@ esp_err_t check_for_ota_update(bool force_update)
 
 
     // --------------------------------------------------------
+    // Never auto-reinstall a version we previously rolled back
+    // from - that would loop forever:
+    // rollback -> re-download -> rollback.
+    //
+    // A forced update clears the block and retries deliberately.
+    // --------------------------------------------------------
+
+    if (force_update)
+    {
+        rollbackClearRejected();
+    }
+    else if (rollbackIsRejectedVersion(remote_version))
+    {
+        ESP_LOGW(
+            TAG,
+            "Manifest version %s was rolled back earlier - skipping (force update to retry).",
+            remote_version
+        );
+
+        return ESP_OK;
+    }
+
+
+    // --------------------------------------------------------
     // Compare versions
     //
     // remote_version still points into ArduinoJson's
@@ -617,6 +642,11 @@ esp_err_t check_for_ota_update(bool force_update)
         TAG,
         "Rebooting..."
     );
+
+
+    // The next boot runs on trial: it must pass the self-test
+    // within the boot-attempt budget or roll back to this image.
+    rollbackArmPendingValidation();
 
 
     delay(3000);

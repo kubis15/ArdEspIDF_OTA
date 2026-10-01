@@ -6,6 +6,7 @@
 
 #include "version_check.h"
 #include "ota_client.h"
+#include "rollback.h"
 
 // Declare bootMillis as external so it can be referenced across modules
 extern uint32_t bootMillis;
@@ -216,9 +217,13 @@ void setup() {
                   ESP.getFlashChipSize() / (1024 * 1024),
                   ESP.getPsramSize() / (1024 * 1024));
 
+    // GPIO override + boot-attempt budget; may restart into the other slot
+    rollbackCheckOnBoot();
+
     loadCredentials();
 
     if (!connectSTA(WIFI_CONNECT_TIMEOUT_MS)) {
+        rollbackOnTrialConnectFailed();  // trial image that can't connect -> revert
         startRecoveryAP();
         return;                          // loop() handles retry + reboot
     }
@@ -237,6 +242,12 @@ void setup() {
             "OTA check failed: %s\n",
             esp_err_to_name(ota_result)
         );
+    }
+    else
+    {
+        // Self-test passed: WiFi up + manifest fetched over TLS.
+        // (An actual update never returns - it restarts.)
+        rollbackMarkHealthy();
     }
 }
 
@@ -293,6 +304,10 @@ void loop() {
                 "OTA check failed: %s\n",
                 esp_err_to_name(ota_result)
             );
+        }
+        else
+        {
+            rollbackMarkHealthy();
         }
     }
 
