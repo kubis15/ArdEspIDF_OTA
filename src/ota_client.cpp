@@ -1,6 +1,7 @@
 #include <Arduino.h>
 #include "esp_http_client.h"
 #include "esp_https_ota.h"
+#include "esp_crt_bundle.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include <string.h>
@@ -8,7 +9,6 @@
 #include <ArduinoJson.h>
 
 #include "ota_client.h"
-#include "github_root_ca.h"
 
 
 static const char *TAG = "OTA_CLIENT";
@@ -218,7 +218,10 @@ esp_err_t check_for_ota_update(bool force_update)
     esp_http_client_config_t config = {};
 
     config.url = manifest_url;
-    config.cert_pem = GITHUB_ROOT_CA;
+    // Validate against the built-in Mozilla root bundle instead of a single
+    // pinned root - survives CA rotations (e.g. Let's Encrypt dropping the
+    // ISRG Root X1 cross-sign) without a firmware change.
+    config.crt_bundle_attach = esp_crt_bundle_attach;
     config.timeout_ms = 15000;
     config.event_handler = http_event_handler;
 
@@ -554,7 +557,7 @@ esp_err_t check_for_ota_update(bool force_update)
     esp_http_client_config_t ota_http_config = {};
 
     ota_http_config.url = firmware_url;
-    ota_http_config.cert_pem = GITHUB_ROOT_CA;
+    ota_http_config.crt_bundle_attach = esp_crt_bundle_attach;
     ota_http_config.timeout_ms = 15000;
 
 
