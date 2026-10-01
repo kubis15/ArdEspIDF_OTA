@@ -220,6 +220,13 @@ void setup() {
     // GPIO override + boot-attempt budget; may restart into the other slot
     rollbackCheckOnBoot();
 
+    // ---- SABOTAGE TEST - REMOVE AFTER ----
+    Serial.println("Sabotage: simulating a fatally broken build");
+    Serial.flush();
+    delay(100);                 // let the line reach the serial monitor
+    abort();
+    // --------------------------------------
+
     loadCredentials();
 
     if (!connectSTA(WIFI_CONNECT_TIMEOUT_MS)) {
