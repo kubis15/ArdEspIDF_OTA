@@ -521,27 +521,36 @@ esp_err_t check_for_ota_update(bool force_update)
 
 
     // --------------------------------------------------------
-    // New firmware detected
+    // Update required: new version, or forced re-install
     // --------------------------------------------------------
 
-    ESP_LOGI(
-        TAG,
-        "New firmware detected."
-    );
+    if (strcmp(remote_version, CURRENT_VERSION) == 0)
+    {
+        ESP_LOGI(
+            TAG,
+            "Forced update requested (re-installing %s).",
+            remote_version
+        );
+    }
+    else
+    {
+        ESP_LOGI(
+            TAG,
+            "New firmware detected."
+        );
 
+        ESP_LOGI(
+            TAG,
+            "Current version: %s",
+            CURRENT_VERSION
+        );
 
-    ESP_LOGI(
-        TAG,
-        "Current version: %s",
-        CURRENT_VERSION
-    );
-
-
-    ESP_LOGI(
-        TAG,
-        "New version: %s",
-        remote_version
-    );
+        ESP_LOGI(
+            TAG,
+            "New version: %s",
+            remote_version
+        );
+    }
 
 
     ESP_LOGI(
